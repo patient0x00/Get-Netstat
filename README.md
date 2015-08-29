@@ -1,6 +1,8 @@
 # Get-Netstat
 Powershell parsing of netstat output
+
 Author: @patient_0x00
+
 Requires: Powershell 2.0
 
 SYNOPSIS
