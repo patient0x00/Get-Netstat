@@ -1,0 +1,104 @@
+Function Get-Netstat {
+    <#
+    .SYNOPSIS
+        PowerShell parsing of netstat output. Resulting output are objects rather than text.
+
+    .DESCRIPTION
+        Runs Netstat command and parses results into seperate objects. Combines information with additional parameters
+        including Path, Start Time, and associated Modules.
+
+    .PARAMETER Elevated
+        Specify this switch if running from an elevated shell. If elevated Netstat is run with the following switches -abfno.
+        If running in a non-elevated shell Netstat is run with the following switches -afno. the '-b' switch requires elevation.
+        The '-b' switch adds the information of the associated process or executable.
+
+    .EXAMPLE
+        PS > Get-Netstat | Out-Gridview
+
+        Will output into the gridview for sorting.
+
+    .EXAMPLE
+        PS > Get-Netstat | ForEach {Get-Process -Id $_.PID}
+
+        Since Netstat parameters are now objects, they can be passed in the pipeline.
+
+    .NOTES
+        Author: @patient_0x00
+        Date:   28 August 2015
+        Requires: Powershell 2.0
+
+        Version History
+        1.0.0 - 8/28/2015
+        - Initial release
+        
+    #>
+    [CmdletBinding()]
+    Param(
+        [switch]$Elevated
+    )
+
+    If ($Elevated){$Netstat = netstat -abfno}
+    Else {$Netstat = netstat -afno}
+    
+    $Length = $Netstat.count
+    $NetString = New-Object System.Collections.Generic.List[string]
+
+    $NetString.Add(($Netstat[4..$Length] | ForEach {$Data1 = [regex]::Split($_, '\s'); $Data1 | Where {$_ -ne ''}}))
+    $NetData = $NetString | ForEach {$Data2 = [regex]::Split($_, "(TCP)|(UDP)"); $Data2}
+
+    Try {
+        $Count1 = 1
+        $Count2 = 2
+        $NetstatObjArray = @()
+        For ($i=0; $i -le $($NetData.Count/2); $i++) {
+            $Count3 = 0
+            $NetDataLength = $NetData[$Count2].Length
+
+            $NetstatObj = New-Object psobject
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Protocol' -Value $NetData[$Count1]
+
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Local IP' -Value $(($NetData[$Count2].Trim().Split()[$Count3]).TrimEnd('1','2','3','4','5','6','7','8','9','0','*').TrimEnd(':'))
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Local Port' -Value $($NetData[$Count2].Trim().Split()[$Count3].Split(':')[-1])
+            $Count3++
+
+            $ForeignLength = $($NetData[$Count2].Trim().Split()[$Count3].Split(':').Count)
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Foreign IP' -Value $(($NetData[$Count2].Trim().Split()[$Count3]).TrimEnd('1','2','3','4','5','6','7','8','9','0','*').TrimEnd(':'))
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Foreign Port' -Value $($NetData[$Count2].Trim().Split()[$Count3].Split(':')[-1])
+            $Count3++
+
+            If ($($NetData[$Count2].Trim().Split()[$Count3]) -match "[A-Z]") {
+                $NetstatObj | Add-Member -MemberType NoteProperty -Name 'State' -Value $($NetData[$Count2].Trim().Split()[$Count3])
+                $Count3++
+
+                $NetstatObj | Add-Member -MemberType NoteProperty -Name 'PID' -Value $($NetData[$Count2].Trim().Split()[$Count3])
+                $Count3PIDNum = $Count3
+                $Count3++
+            }
+            Else {
+                $NetstatObj | Add-Member -MemberType NoteProperty -Name 'State' -Value ''
+
+                If ($($NetData[$Count2].Trim().Split()[$Count3]) -match "[0-9]") {
+                    $NetstatObj | Add-Member -MemberType NoteProperty -Name 'PID' -Value $($NetData[$Count2].Trim().Split()[$Count3])
+                    $Count3PIDNum = $Count3
+                    $Count3++
+                }
+                Else {
+                    $NetstatObj | Add-Member -MemberType NoteProperty -Name 'PID' -Value ''
+                }
+            }
+
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Associated Process/EXE' -Value $($NetData[$Count2].Trim().Split()[$Count3..$($NetDataLength)])
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Path' -Value $((Get-Process | where {$_.Id -eq $($NetData[$Count2].Trim().Split()[$Count3PIDNum])}).Path)
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Start Time' -Value $((Get-Process | where {$_.Id -eq $($NetData[$Count2].Trim().Split()[$Count3PIDNum])}).StartTime)
+            $NetstatObj | Add-Member -MemberType NoteProperty -Name 'Modules' -Value $((Get-Process | where {$_.Id -eq $($NetData[$Count2].Trim().Split()[$Count3PIDNum])}).Modules -join ',')
+
+            $Count1 = $Count1 + 2
+            $Count2 = $Count2 + 2
+            $NetstatObjArray += $NetstatObj
+        }
+    }
+    Catch {} # This is left blank. Due to how netstat is parsed and the fact of using arrays a lot of errors are created due to empty values.
+             # These errors do not impact the data. If someone has better ideas of how to eliminate the errors please let me know.
+
+    Write-Output $NetstatObjArray
+}
